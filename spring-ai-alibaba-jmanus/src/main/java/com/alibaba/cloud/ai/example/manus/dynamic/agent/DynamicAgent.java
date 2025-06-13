@@ -142,7 +142,7 @@ public class DynamicAgent extends ReActAgent {
 			messages.add(nextStepMessage);
 			thinkActRecord.startThinking(messages.toString());
 
-			log.debug("Messages prepared for the prompt: {}", messages);
+			log.warn("Messages prepared for the prompt: {}", messages);
 
 			userPrompt = new Prompt(messages, chatOptions);
 
@@ -159,11 +159,11 @@ public class DynamicAgent extends ReActAgent {
 
 			thinkActRecord.finishThinking(responseByLLm);
 
-			log.info(String.format("✨ %s's thoughts: %s", getName(), responseByLLm));
-			log.info(String.format("🛠️ %s selected %d tools to use", getName(), toolCalls.size()));
+			log.warn(String.format("✨ %s's thoughts: %s", getName(), responseByLLm));
+			log.warn(String.format("🛠️ %s selected %s tools to use", getName(), toolCalls));
 
 			if (!toolCalls.isEmpty()) {
-				log.info(String.format("🧰 Tools being prepared: %s",
+				log.warn(String.format("🧰 Tools being prepared: %s",
 						toolCalls.stream().map(ToolCall::name).collect(Collectors.toList())));
 				thinkActRecord.setActionNeeded(true);
 				thinkActRecord.setToolName(toolCalls.get(0).name());
@@ -194,7 +194,7 @@ public class DynamicAgent extends ReActAgent {
 			llmService.getAgentMemory().add(getPlanId(), toolResponseMessage);
 			String llmCallResponse = toolResponseMessage.getResponses().get(0).responseData();
 
-			log.info(String.format("🔧 Tool %s's executing result: %s", getName(), llmCallResponse));
+			log.warn(String.format("🔧 Tool %s's executing result: %s", getName(), llmCallResponse));
 
 			thinkActRecord.finishAction(llmCallResponse, "SUCCESS");
 			String toolcallName = toolCall.name();
@@ -206,14 +206,14 @@ public class DynamicAgent extends ReActAgent {
 					FormInputTool formInputTool = (FormInputTool) formInputToolDef;
 					// Check if the tool is waiting for user input
 					if (formInputTool.getInputState() == FormInputTool.InputState.AWAITING_USER_INPUT) {
-						log.info("FormInputTool is awaiting user input for planId: {}", getPlanId());
+						log.warn("FormInputTool is awaiting user input for planId: {}", getPlanId());
 						userInputService.storeFormInputTool(getPlanId(), formInputTool);
 						// Wait for user input or timeout
 						waitForUserInputOrTimeout(formInputTool);
 
 						// After waiting, check the state again
 						if (formInputTool.getInputState() == FormInputTool.InputState.INPUT_RECEIVED) {
-							log.info("User input received for planId: {}", getPlanId());
+							log.warn("User input received for planId: {}", getPlanId());
 							// The UserInputService.submitUserInputs would have updated
 							// the tool's internal state.
 							// We can now get the updated state string for the LLM.
@@ -366,7 +366,7 @@ public class DynamicAgent extends ReActAgent {
 			String envData = collectEnvData(toolKey);
 			toolEnvDataMap.put(toolKey, envData);
 		}
-		log.debug("收集到的工具环境数据: {}", toolEnvDataMap);
+		log.warn("收集到的工具环境数据: {}", toolEnvDataMap);
 
 		setEnvData(toolEnvDataMap);
 	}
@@ -388,7 +388,7 @@ public class DynamicAgent extends ReActAgent {
 
 	// Add a method to wait for user input or handle timeout.
 	private void waitForUserInputOrTimeout(FormInputTool formInputTool) {
-		log.info("Waiting for user input for planId: {}...", getPlanId());
+		log.warn("Waiting for user input for planId: {}...", getPlanId());
 		long startTime = System.currentTimeMillis();
 		// Get timeout from ManusProperties and convert to milliseconds
 		long userInputTimeoutMs = getManusProperties().getUserInputTimeout() * 1000L;
@@ -414,7 +414,7 @@ public class DynamicAgent extends ReActAgent {
 			}
 		}
 		if (formInputTool.getInputState() == FormInputTool.InputState.INPUT_RECEIVED) {
-			log.info("User input received for planId: {}", getPlanId());
+			log.warn("User input received for planId: {}", getPlanId());
 		}
 		else if (formInputTool.getInputState() == FormInputTool.InputState.INPUT_TIMEOUT) {
 			log.warn("User input timed out for planId: {}", getPlanId());

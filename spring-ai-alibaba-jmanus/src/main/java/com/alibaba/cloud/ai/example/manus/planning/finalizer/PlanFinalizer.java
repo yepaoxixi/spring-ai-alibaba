@@ -36,89 +36,90 @@ import com.alibaba.cloud.ai.example.manus.recorder.PlanExecutionRecorder;
  */
 public class PlanFinalizer {
 
-	private final LlmService llmService;
+    private final LlmService llmService;
 
-	private static final Logger log = LoggerFactory.getLogger(PlanFinalizer.class);
+    private static final Logger log = LoggerFactory.getLogger(PlanFinalizer.class);
 
-	protected final PlanExecutionRecorder recorder;
+    protected final PlanExecutionRecorder recorder;
 
-	public PlanFinalizer(LlmService llmService, PlanExecutionRecorder recorder) {
-		this.llmService = llmService;
-		this.recorder = recorder;
-	}
+    public PlanFinalizer(LlmService llmService, PlanExecutionRecorder recorder) {
+        this.llmService = llmService;
+        this.recorder = recorder;
+    }
 
-	/**
-	 * 生成计划执行总结
-	 * @param context 执行上下文，包含用户请求和执行的过程信息
-	 */
-	public void generateSummary(ExecutionContext context) {
-		if (context == null || context.getPlan() == null) {
-			throw new IllegalArgumentException("ExecutionContext or its plan cannot be null");
-		}
-		if (!context.isNeedSummary()) {
-			log.info("No need to generate summary, use code generate summary instead");
-			String summary = context.getPlan().getPlanExecutionStateStringFormat(false);
-			context.setResultSummary(summary);
-			recordPlanCompletion(context, summary);
-			return;
-		}
-		ExecutionPlan plan = context.getPlan();
-		String executionDetail = plan.getPlanExecutionStateStringFormat(false);
-		try {
-			String userRequest = context.getUserRequest();
+    /**
+     * 生成计划执行总结
+     *
+     * @param context 执行上下文，包含用户请求和执行的过程信息
+     */
+    public void generateSummary(ExecutionContext context) {
+        if (context == null || context.getPlan() == null) {
+            throw new IllegalArgumentException("ExecutionContext or its plan cannot be null");
+        }
+        if (!context.isNeedSummary()) {
+            log.info("No need to generate summary, use code generate summary instead");
+            String summary = context.getPlan().getPlanExecutionStateStringFormat(false);
+            context.setResultSummary(summary);
+            recordPlanCompletion(context, summary);
+            return;
+        }
+        ExecutionPlan plan = context.getPlan();
+        String executionDetail = plan.getPlanExecutionStateStringFormat(false);
+        try {
+            String userRequest = context.getUserRequest();
 
-			SystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate("""
-					您是 jmanus，一个能够回应用户请求的AI助手，你需要根据这个分步骤的执行计划的执行结果，来回应用户的请求。
+            SystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate("""
+                    您是 jmanus，一个能够回应用户请求的AI助手，你需要根据这个分步骤的执行计划的执行结果，来回应用户的请求。
+                    
+                    分步骤计划的执行详情：
+                    {executionDetail}
+                    
+                    请根据执行详情里面的信息，来回应用户的请求。
+                    
+                    """);
 
-					分步骤计划的执行详情：
-					{executionDetail}
+            Message systemMessage = systemPromptTemplate.createMessage(Map.of("executionDetail", executionDetail));
 
-					请根据执行详情里面的信息，来回应用户的请求。
+            String userRequestTemplate = """
+                    当前的用户请求是:
+                    {userRequest}
+                    """;
 
-					""");
+            PromptTemplate userMessageTemplate = new PromptTemplate(userRequestTemplate);
+            Message userMessage = userMessageTemplate.createMessage(Map.of("userRequest", userRequest));
 
-			Message systemMessage = systemPromptTemplate.createMessage(Map.of("executionDetail", executionDetail));
+            Prompt prompt = new Prompt(List.of(systemMessage, userMessage));
 
-			String userRequestTemplate = """
-					当前的用户请求是:
-					{userRequest}
-					""";
+            ChatResponse response = llmService.getPlanningChatClient()
+                    .prompt(prompt)
 
-			PromptTemplate userMessageTemplate = new PromptTemplate(userRequestTemplate);
-			Message userMessage = userMessageTemplate.createMessage(Map.of("userRequest", userRequest));
+                    .call()
+                    .chatResponse();
 
-			Prompt prompt = new Prompt(List.of(systemMessage, userMessage));
+            String summary = response.getResult().getOutput().getText();
+            context.setResultSummary(summary);
 
-			ChatResponse response = llmService.getPlanningChatClient()
-				.prompt(prompt)
+            recordPlanCompletion(context, summary);
+            log.warn("prompt messages :{}", prompt);
+            log.warn("Generated summary: {}", summary);
+        } catch (Exception e) {
+            log.error("Error generating summary with LLM", e);
+            throw new RuntimeException("Failed to generate summary", e);
+        } finally {
+            llmService.clearConversationMemory(plan.getPlanId());
+        }
+    }
 
-				.call()
-				.chatResponse();
+    /**
+     * Record plan completion
+     *
+     * @param context The execution context
+     * @param summary The summary of the plan execution
+     */
+    private void recordPlanCompletion(ExecutionContext context, String summary) {
+        recorder.recordPlanCompletion(context.getPlan().getPlanId(), summary);
 
-			String summary = response.getResult().getOutput().getText();
-			context.setResultSummary(summary);
-
-			recordPlanCompletion(context, summary);
-			log.info("Generated summary: {}", summary);
-		}
-		catch (Exception e) {
-			log.error("Error generating summary with LLM", e);
-			throw new RuntimeException("Failed to generate summary", e);
-		}
-		finally {
-			llmService.clearConversationMemory(plan.getPlanId());
-		}
-	}
-
-	/**
-	 * Record plan completion
-	 * @param context The execution context
-	 * @param summary The summary of the plan execution
-	 */
-	private void recordPlanCompletion(ExecutionContext context, String summary) {
-		recorder.recordPlanCompletion(context.getPlan().getPlanId(), summary);
-
-		log.info("Plan completed with ID: {} and summary: {}", context.getPlan().getPlanId(), summary);
-	}
+        log.info("Plan completed with ID: {} and summary: {}", context.getPlan().getPlanId(), summary);
+    }
 
 }
