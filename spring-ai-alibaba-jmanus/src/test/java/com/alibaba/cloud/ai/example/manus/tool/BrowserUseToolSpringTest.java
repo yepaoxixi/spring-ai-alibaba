@@ -20,6 +20,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
+import org.json.JSONObject;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
@@ -134,6 +138,14 @@ class BrowserUseToolSpringTest {
 			return;
 		}
 
+	}
+	@Test
+	public void hello(){
+		String hello = "{\n" +
+				"  \"output\" : \"[{\\\"text\\\":\\\"{\\\\\\\"userIntent\\\\\\\":\\\\\\\"SOP\\\\\\\",\\\\\\\"desc\\\\\\\":\\\\\\\"1.通过业务诊断工具对比时间20240401、20240331数据;\\\\\\\\n2.如果消耗波动或转化波动或成本波动大于10%，那么依次调用任务波动分析工具、渠道波动分析工具、广告位波动分析工具、二级波动分析工具分析导致波动的原因，orderByType按需选择，默认使用转化uv;\\\\\\\\n3.终止分析并汇总贡献度和波动分析的结果并输出，需要展示必要的量级、波动率指标，并展示必要的维度，比如任务id、渠道、二级id。\\\\\\\\n\\\\\\\"}\\\"}]\"\n" +
+				"}";
+		JsonElement jsonElement = JsonParser.parseString(hello);
+		System.out.println(jsonElement.toString());
 	}
 
 	@Test
