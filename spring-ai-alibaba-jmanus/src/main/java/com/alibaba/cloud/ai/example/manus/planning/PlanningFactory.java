@@ -121,7 +121,8 @@ public class PlanningFactory {
 		PlanExecutor planExecutor = new PlanExecutor(agentEntities, recorder, agentService, llmService);
 		PlanFinalizer planFinalizer = new PlanFinalizer(llmService, recorder);
 
-		PlanningCoordinator planningCoordinator = new PlanningCoordinator(this,planCreator, planExecutor, planFinalizer);
+		PlanningCoordinator planningCoordinator = new PlanningCoordinator(this, planCreator, planExecutor,
+				planFinalizer);
 
 		return planningCoordinator;
 	}
