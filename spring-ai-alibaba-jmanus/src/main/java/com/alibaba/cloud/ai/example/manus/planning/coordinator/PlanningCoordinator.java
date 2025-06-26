@@ -16,11 +16,13 @@
 package com.alibaba.cloud.ai.example.manus.planning.coordinator;
 
 import com.alibaba.cloud.ai.example.manus.planning.PlanningFactory;
+import com.alibaba.cloud.ai.example.manus.planning.ThreadLocalUtils;
 import com.alibaba.cloud.ai.example.manus.planning.creator.PlanCreator;
 import com.alibaba.cloud.ai.example.manus.planning.executor.PlanExecutor;
 import com.alibaba.cloud.ai.example.manus.planning.finalizer.PlanFinalizer;
 import com.alibaba.cloud.ai.example.manus.planning.model.vo.ExecutionContext;
 import com.alibaba.cloud.ai.example.manus.planning.model.vo.ExecutionPlan;
+import com.alibaba.cloud.ai.example.manus.planning.model.vo.UserIntent;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -92,7 +94,8 @@ public class PlanningCoordinator {
 		JsonArray asJsonArray = JsonParser.parseString(outputArray).getAsJsonArray();
 		String text = asJsonArray.get(0).getAsJsonObject().get("text").getAsString();
 		JsonObject jsonObject = JsonParser.parseString(text).getAsJsonObject();
-		plan.setExecutionParams(jsonObject.toString());
+		UserIntent intent = new UserIntent(jsonObject.get("userIntent").getAsString(), jsonObject.get("desc").getAsString());
+		ThreadLocalUtils.setUserIntent(intent);
 	}
 
 	/**
