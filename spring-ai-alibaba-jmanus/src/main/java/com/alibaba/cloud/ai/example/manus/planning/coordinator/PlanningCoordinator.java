@@ -15,20 +15,14 @@
  */
 package com.alibaba.cloud.ai.example.manus.planning.coordinator;
 
-import com.alibaba.cloud.ai.example.manus.planning.PlanningFactory;
-import com.alibaba.cloud.ai.example.manus.planning.ThreadLocalUtils;
 import com.alibaba.cloud.ai.example.manus.planning.creator.PlanCreator;
 import com.alibaba.cloud.ai.example.manus.planning.executor.PlanExecutor;
 import com.alibaba.cloud.ai.example.manus.planning.finalizer.PlanFinalizer;
 import com.alibaba.cloud.ai.example.manus.planning.model.vo.ExecutionContext;
-import com.alibaba.cloud.ai.example.manus.planning.model.vo.ExecutionPlan;
-import com.alibaba.cloud.ai.example.manus.planning.model.vo.UserIntent;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
 /**
- * 计划流程的总协调器 负责协调计划的创建、执行和总结三个主要步骤
+ * The coordinator of the planning process, responsible for coordinating the creation,
+ * execution and summary of the plan
  */
 public class PlanningCoordinator {
 
@@ -38,76 +32,53 @@ public class PlanningCoordinator {
 
 	private final PlanFinalizer planFinalizer;
 
-	private final PlanningFactory planningFactory;
-
-	public PlanningCoordinator(PlanningFactory planningFactory, PlanCreator planCreator, PlanExecutor planExecutor,
-			PlanFinalizer planFinalizer) {
+	public PlanningCoordinator(PlanCreator planCreator, PlanExecutor planExecutor, PlanFinalizer planFinalizer) {
 		this.planCreator = planCreator;
 		this.planExecutor = planExecutor;
 		this.planFinalizer = planFinalizer;
-		this.planningFactory = planningFactory;
 	}
 
 	/**
-	 * 仅创建计划，不执行
-	 * @param context 执行上下文
-	 * @return 执行上下文
+	 * Create a plan only, without executing it
+	 * @param context execution context
+	 * @return execution context
 	 */
 	public ExecutionContext createPlan(ExecutionContext context) {
-		// 只执行创建计划步骤
+		// Only execute the create plan step
 		context.setUseMemory(false);
 		planCreator.createPlan(context);
 		return context;
 	}
 
 	/**
-	 * 执行完整的计划流程
-	 * @param context 执行上下文
-	 * @return 执行总结
+	 * Execute the complete plan process
+	 * @param context execution context
+	 * @return execution summary
 	 */
 	public ExecutionContext executePlan(ExecutionContext context) {
 		context.setUseMemory(true);
-		// 1. 创建计划
+		// 1. Create a plan
 		planCreator.createPlan(context);
 
-		setUserIntent(context);
-		// 2. 执行计划
+		// 2. Execute the plan
 		planExecutor.executeAllSteps(context);
 
-		// 3. 生成总结
+		// 3. Generate a summary
 		planFinalizer.generateSummary(context);
 
 		return context;
 	}
 
-	public void setUserIntent(ExecutionContext context) {
-		ExecutionPlan plan = context.getPlan();
-		// 获取或创建规划流程
-		PlanningFactory.ToolCallBackContext userIntent = planningFactory.toolCallbackMap(context.getPlanId())
-			.get("pre_julang_mcp_tools_userIntent");
-		String input = """
-				{"query":"%s" }
-				""".formatted(context.getUserRequest());
-		String call = userIntent.getToolCallback().call(input);
-
-		String outputArray = JsonParser.parseString(call).getAsJsonObject().get("output").getAsString();
-		JsonArray asJsonArray = JsonParser.parseString(outputArray).getAsJsonArray();
-		String text = asJsonArray.get(0).getAsJsonObject().get("text").getAsString();
-		JsonObject jsonObject = JsonParser.parseString(text).getAsJsonObject();
-		UserIntent intent = new UserIntent(jsonObject.get("userIntent").getAsString(), jsonObject.get("desc").getAsString());
-		ThreadLocalUtils.setUserIntent(intent);
-	}
-
 	/**
-	 * 执行已有计划（跳过创建计划步骤）
-	 * @param context 包含现有计划的执行上下文
-	 * @return 执行总结
+	 * Execute an existing plan (skip the create plan step)
+	 * @param context execution context containing the existing plan
+	 * @return execution summary
 	 */
 	public ExecutionContext executeExistingPlan(ExecutionContext context) {
-		// 1. 执行计划
+		// 1. Execute the plan
 		planExecutor.executeAllSteps(context);
 
-		// 2. 生成总结
+		// 2. Generate a summary
 		planFinalizer.generateSummary(context);
 
 		return context;
