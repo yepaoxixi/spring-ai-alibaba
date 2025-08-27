@@ -1,4 +1,4 @@
-<!-- 
+<!--
  * Copyright 2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,7 +14,7 @@
  * limitations under the License.
 -->
 <template>
-  <div class="sidebar-wrapper" :class="{ 'sidebar-wrapper-collapsed': sidebarStore.isCollapsed }">
+  <div class="sidebar-wrapper" :class="{ 'sidebar-wrapper-collapsed': sidebarStore.isCollapsed }" :style="{ width: sidebarWidth + '%' }">
     <div class="sidebar-content">
       <div class="sidebar-content-header">
         <div class="sidebar-content-title">{{ $t('sidebar.title') }}</div>
@@ -93,7 +93,7 @@
               </div>
             </div>
             <div class="task-time">
-              {{ getRelativeTimeString(new Date(template.updateTime || template.createTime)) }}
+              {{ getRelativeTimeString(sidebarStore.parseDateTime(template.updateTime || template.createTime)) }}
             </div>
             <div class="task-actions">
               <button
@@ -165,43 +165,17 @@
           </div>
 
           <!-- Section 2: JSON Editor -->
-          <div class="config-section">
-            <div class="section-header">
-              <Icon icon="carbon:code" width="16" />
-              <span>{{ $t('sidebar.jsonTemplate') }}</span>
-              <div class="section-actions">
-                <button
-                  class="btn btn-sm"
-                  @click="sidebarStore.rollbackVersion"
-                  :disabled="!sidebarStore.canRollback"
-                  :title="$t('sidebar.rollback')"
-                >
-                  <Icon icon="carbon:undo" width="14" />
-                </button>
-                <button
-                  class="btn btn-sm"
-                  @click="sidebarStore.restoreVersion"
-                  :disabled="!sidebarStore.canRestore"
-                  :title="$t('sidebar.restore')"
-                >
-                  <Icon icon="carbon:redo" width="14" />
-                </button>
-                <button
-                  class="btn btn-primary btn-sm"
-                  @click="handleSaveTemplate"
-                  :disabled="sidebarStore.isGenerating || sidebarStore.isExecuting"
-                >
-                  <Icon icon="carbon:save" width="14" />
-                </button>
-              </div>
-            </div>
-            <textarea
-              v-model="formattedJsonContent"
-              class="json-editor"
-              :placeholder="$t('sidebar.jsonPlaceholder')"
-              rows="12"
-            ></textarea>
-          </div>
+          <JsonEditor
+            :json-content="sidebarStore.jsonContent"
+            :can-rollback="sidebarStore.canRollback"
+            :can-restore="sidebarStore.canRestore"
+            :is-generating="sidebarStore.isGenerating"
+            :is-executing="sidebarStore.isExecuting"
+            @rollback="sidebarStore.rollbackVersion"
+            @restore="sidebarStore.restoreVersion"
+            @save="handleSaveTemplate"
+            @update:json-content="(value: string) => sidebarStore.jsonContent = value"
+          />
 
           <!-- Section 3: Execution Controller -->
           <div class="config-section">
@@ -255,77 +229,37 @@
         </div>
       </div>
     </div>
+    
+    <!-- Sidebar Resizer -->
+    <div
+      class="sidebar-resizer"
+      @mousedown="startResize"
+      @dblclick="resetSidebarWidth"
+      :title="$t('sidebar.resizeHint')"
+    >
+      <div class="resizer-line"></div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, computed } from 'vue'
+import { onMounted, ref, onUnmounted } from 'vue'
 import { Icon } from '@iconify/vue'
 import { useI18n } from 'vue-i18n'
 import { sidebarStore } from '@/stores/sidebar'
+import JsonEditor from './JsonEditor.vue'
 
 const { t } = useI18n()
 
-// Fields to hide in JSON editor
-const hiddenFields = ['currentPlanId', 'userRequest', 'rootPlanId']
-
-// Computed property for formatted JSON content
-const formattedJsonContent = computed({
-  get() {
-    try {
-      if (!sidebarStore.jsonContent) return ''
-      
-      const parsed = JSON.parse(sidebarStore.jsonContent)
-      
-      // Remove hidden fields for display
-      const filtered = { ...parsed }
-      hiddenFields.forEach(field => {
-        delete filtered[field]
-      })
-      
-      // Return formatted JSON
-      return JSON.stringify(filtered, null, 2)
-    } catch {
-      // If parsing fails, return original content
-      return sidebarStore.jsonContent
-    }
-  },
-  set(value: string) {
-    try {
-      if (!value.trim()) {
-        sidebarStore.jsonContent = ''
-        return
-      }
-      
-      const parsed = JSON.parse(value)
-      
-      // Get original data to preserve hidden fields
-      let originalData: any = {}
-      try {
-        originalData = JSON.parse(sidebarStore.jsonContent || '{}')
-      } catch {
-        // If original is not valid JSON, start fresh
-      }
-      
-      // Merge user input with preserved hidden fields
-      const merged: any = { ...parsed }
-      hiddenFields.forEach(field => {
-        if (originalData[field] !== undefined) {
-          merged[field] = originalData[field]
-        }
-      })
-      
-      sidebarStore.jsonContent = JSON.stringify(merged)
-    } catch {
-      // If parsing fails, store as-is
-      sidebarStore.jsonContent = value
-    }
-  }
-})
+// Sidebar width management
+const sidebarWidth = ref(80) // Default width percentage
+const isResizing = ref(false)
+const startX = ref(0)
+const startWidth = ref(0)
 
 // Use pinia store
-// 使用 TS 对象实现的 sidebarStore
-// 直接使用 sidebarStore 实例，无需 pinia
+// Use TS object-implemented sidebarStore
+// Use sidebarStore instance directly, no pinia needed
 
 // Emits - Keep some events for communication with external components
 const emit = defineEmits<{
@@ -344,7 +278,7 @@ const handleSaveTemplate = async () => {
       alert(t('sidebar.saveStatus', { message: saveResult.message }))
     }
   } catch (error: any) {
-    console.error('保存计划修改失败:', error)
+    console.error('Failed to save plan modifications:', error)
     alert(error.message || t('sidebar.saveFailed'))
   }
 }
@@ -354,7 +288,7 @@ const handleGeneratePlan = async () => {
     await sidebarStore.generatePlan()
     alert(t('sidebar.generateSuccess', { templateId: sidebarStore.selectedTemplate?.id ?? t('sidebar.unknown') }))
   } catch (error: any) {
-    console.error('生成计划失败:', error)
+    console.error('Failed to generate plan:', error)
     alert(t('sidebar.generateFailed') + ': ' + error.message)
   }
 }
@@ -364,7 +298,7 @@ const handleUpdatePlan = async () => {
     await sidebarStore.updatePlan()
     alert(t('sidebar.updateSuccess'))
   } catch (error: any) {
-    console.error('更新计划失败:', error)
+    console.error('Failed to update plan:', error)
     alert(t('sidebar.updateFailed') + ': ' + error.message)
   }
 }
@@ -380,15 +314,15 @@ const handleExecutePlan = async () => {
       return
     }
 
-    console.log('[Sidebar] 触发计划执行请求:', planData)
+    console.log('[Sidebar] Triggering plan execution request:', planData)
 
-    // 发送计划执行事件给聊天组件
+    // Send plan execution event to chat component
     console.log('[Sidebar] Emitting planExecutionRequested event')
     emit('planExecutionRequested', planData)
 
     console.log('[Sidebar] Event emitted')
   } catch (error: any) {
-    console.error('执行计划出错:', error)
+    console.error('Error executing plan:', error)
     alert(t('sidebar.executeFailed') + ': ' + error.message)
   } finally {
     sidebarStore.finishPlanExecution()
@@ -397,6 +331,12 @@ const handleExecutePlan = async () => {
 
 // Utility functions
 const getRelativeTimeString = (date: Date): string => {
+  // Check if date is valid
+  if (isNaN(date.getTime())) {
+    console.warn('Invalid date received:', date)
+    return t('time.unknown')
+  }
+
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffMinutes = Math.floor(diffMs / 60000)
@@ -416,9 +356,66 @@ const truncateText = (text: string, maxLength: number): string => {
   return text.substring(0, maxLength) + '...'
 }
 
+// Sidebar resize methods
+const startResize = (e: MouseEvent) => {
+  isResizing.value = true
+  startX.value = e.clientX
+  startWidth.value = sidebarWidth.value
+
+  document.addEventListener('mousemove', handleMouseMove)
+  document.addEventListener('mouseup', handleMouseUp)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+
+  e.preventDefault()
+}
+
+const handleMouseMove = (e: MouseEvent) => {
+  if (!isResizing.value) return
+
+  const containerWidth = window.innerWidth
+  const deltaX = e.clientX - startX.value
+  const deltaPercent = (deltaX / containerWidth) * 100
+
+  let newWidth = startWidth.value + deltaPercent
+
+  // Limit sidebar width between 15% and 100%
+  newWidth = Math.max(15, Math.min(100, newWidth))
+
+  sidebarWidth.value = newWidth
+}
+
+const handleMouseUp = () => {
+  isResizing.value = false
+  document.removeEventListener('mousemove', handleMouseMove)
+  document.removeEventListener('mouseup', handleMouseUp)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+
+  // Save to localStorage
+  localStorage.setItem('sidebarWidth', sidebarWidth.value.toString())
+}
+
+const resetSidebarWidth = () => {
+  sidebarWidth.value = 80
+  localStorage.setItem('sidebarWidth', '80')
+}
+
 // Lifecycle
 onMounted(() => {
   sidebarStore.loadPlanTemplateList()
+  
+  // Restore sidebar width from localStorage
+  const savedWidth = localStorage.getItem('sidebarWidth')
+  if (savedWidth) {
+    sidebarWidth.value = parseFloat(savedWidth)
+  }
+})
+
+onUnmounted(() => {
+  // Clean up event listeners
+  document.removeEventListener('mousemove', handleMouseMove)
+  document.removeEventListener('mouseup', handleMouseUp)
 })
 
 // Expose methods for parent component to call
@@ -432,31 +429,33 @@ defineExpose({
 <style scoped>
 .sidebar-wrapper {
   position: relative;
-  width: 500px;
   height: 100vh;
   background: rgba(255, 255, 255, 0.05);
   border-right: 1px solid rgba(255, 255, 255, 0.1);
-  transition: all 0.3s ease-in-out;
+  transition: width 0.1s ease;
   overflow: hidden;
+  display: flex;
 }
 .sidebar-wrapper-collapsed {
   border-right: none;
-  width: 0;
+  width: 0 !important;
   /* transform: translateX(-100%); */
 
-  .sidebar-content {
+  .sidebar-content,
+  .sidebar-resizer {
     opacity: 0;
     pointer-events: none;
   }
 }
 
-.sidebar-content {
-  height: 100%;
-  width: 100%;
-  padding: 12px 0 12px 12px;
-  display: flex;
-  flex-direction: column;
-  transition: all 0.3s ease-in-out;
+  .sidebar-content {
+    height: 100%;
+    width: 100%;
+    padding: 12px 0 12px 12px;
+    display: flex;
+    flex-direction: column;
+    transition: all 0.3s ease-in-out;
+    flex: 1;
 
   .sidebar-content-header {
     display: flex;
@@ -633,14 +632,14 @@ defineExpose({
         }
 
         .json-editor {
-          min-height: 200px;
-          font-size: 11px;
-          line-height: 1.5;
-          white-space: pre;
-          overflow-wrap: normal;
-          word-break: normal;
-          tab-size: 2;
-          font-variant-ligatures: none;
+            min-height: 200px;
+            font-size: 11px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            overflow-wrap: break-word;
+            word-break: break-word;
+            tab-size: 2;
+            font-variant-ligatures: none;
         }
 
         .generator-content {
@@ -968,5 +967,40 @@ defineExpose({
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Sidebar Resizer Styles */
+.sidebar-resizer {
+  width: 6px;
+  height: 100vh;
+  background: #1a1a1a;
+  cursor: col-resize;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+  flex-shrink: 0;
+
+  &:hover {
+    background: #2a2a2a;
+
+    .resizer-line {
+      background: #4a90e2;
+      width: 2px;
+    }
+  }
+
+  &:active {
+    background: #3a3a3a;
+  }
+}
+
+.resizer-line {
+  width: 1px;
+  height: 40px;
+  background: #3a3a3a;
+  border-radius: 1px;
+  transition: all 0.2s ease;
 }
 </style>

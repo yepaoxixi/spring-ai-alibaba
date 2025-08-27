@@ -64,7 +64,8 @@ public class PlanTemplateService implements IPlanTemplateService {
 	@Lazy
 	private PlanningFactory planningFactory;
 
-	private final ObjectMapper objectMapper = new ObjectMapper();
+	@Autowired
+	private ObjectMapper objectMapper;
 
 	/**
 	 * Save plan template and its first version
@@ -269,9 +270,8 @@ public class PlanTemplateService implements IPlanTemplateService {
 		}
 
 		try {
-			ObjectMapper mapper = new ObjectMapper();
-			JsonNode node1 = mapper.readTree(json1);
-			JsonNode node2 = mapper.readTree(json2);
+			JsonNode node1 = objectMapper.readTree(json1);
+			JsonNode node2 = objectMapper.readTree(json2);
 			return node1.equals(node2);
 		}
 		catch (Exception e) {
@@ -288,8 +288,7 @@ public class PlanTemplateService implements IPlanTemplateService {
 	 */
 	public String extractTitleFromPlan(String planJson) {
 		try {
-			ObjectMapper mapper = new ObjectMapper();
-			JsonNode rootNode = mapper.readTree(planJson);
+			JsonNode rootNode = objectMapper.readTree(planJson);
 			if (rootNode.has("title")) {
 				return rootNode.get("title").asText("Untitled Plan");
 			}
@@ -367,13 +366,14 @@ public class PlanTemplateService implements IPlanTemplateService {
 			context.setNeedSummary(true); // We need to generate a summary
 
 			try {
-				// 使用 Jackson 反序列化 JSON 为 PlanInterface 对象（支持多态）
+				// Use Jackson to deserialize JSON to PlanInterface object (supports
+				// polymorphism)
 				PlanInterface plan = objectMapper.readValue(planJson, PlanInterface.class);
 
-				// 设置新的计划ID，覆盖JSON中的ID
+				// Set new plan ID, overriding ID in JSON
 				plan.setCurrentPlanId(newPlanId);
 				plan.setRootPlanId(newPlanId);
-				// 设置URL参数到计划中
+				// Set URL parameters to plan
 				if (rawParam != null && !rawParam.isEmpty()) {
 					logger.info("Set execution parameters to plan: {}", rawParam);
 					plan.setExecutionParams(rawParam);
@@ -395,21 +395,181 @@ public class PlanTemplateService implements IPlanTemplateService {
 
 			// Execute the plan asynchronously
 			CompletableFuture.runAsync(() -> {
-				try {
-					// Execute the plan and summary steps, skipping the create plan step
-					planningCoordinator.executeExistingPlan(context);
-					logger.info("Plan execution successful: {}", newPlanId);
-				}
-				catch (Exception e) {
-					logger.error("Plan execution failed", e);
-				}
+				// Execute the plan and summary steps, skipping the create plan step
+				planningCoordinator.executeExistingPlan(context);
+				logger.info("Plan execution successful: {}", newPlanId);
+			}).exceptionally(e -> {
+				logger.error("Plan execution failed", e);
+				return null;
 			});
 
 			// Return task ID and initial status
 			Map<String, Object> response = new HashMap<>();
 			response.put("planId", newPlanId);
 			response.put("status", "processing");
-			response.put("message", "计划执行请求已提交，正在处理中");
+			response.put("message", "Plan execution request submitted, processing");
+
+			return ResponseEntity.ok(response);
+		}
+		catch (Exception e) {
+			logger.error("Plan execution failed", e);
+			return ResponseEntity.internalServerError()
+				.body(Map.of("error", "Plan execution failed: " + e.getMessage()));
+		}
+	}
+
+	/**
+	 * Execute by plan template with uploaded files support
+	 * @param planTemplateId Plan template ID
+	 * @param rawParam URL query parameters
+	 * @param uploadedFiles List of uploaded files
+	 * @return Result status
+	 */
+	public ResponseEntity<Map<String, Object>> executePlanByTemplateIdInternal(String planTemplateId, String rawParam,
+			List<Map<String, Object>> uploadedFiles) {
+		try {
+			// Step 1: Get execution JSON from repository by planTemplateId
+			PlanTemplate template = getPlanTemplate(planTemplateId);
+			if (template == null) {
+				return ResponseEntity.notFound().build();
+			}
+
+			// Get the latest version of the plan JSON
+			List<String> versions = getPlanVersions(planTemplateId);
+			if (versions.isEmpty()) {
+				return ResponseEntity.internalServerError()
+					.body(Map.of("error", "Plan template has no executable version"));
+			}
+			String planJson = getPlanVersion(planTemplateId, versions.size() - 1);
+			if (planJson == null || planJson.trim().isEmpty()) {
+				return ResponseEntity.internalServerError().body(Map.of("error", "Cannot get plan JSON data"));
+			}
+
+			// Determine plan ID based on uploaded files
+			String planId;
+			if (uploadedFiles != null && !uploadedFiles.isEmpty()) {
+				// Use the planId from uploaded files
+				String uploadPlanId = (String) uploadedFiles.get(0).get("planId");
+				if (uploadPlanId != null && !uploadPlanId.trim().isEmpty()) {
+					planId = uploadPlanId;
+					logger.info("Using uploaded file plan ID: {}", planId);
+				}
+				else {
+					planId = planIdDispatcher.generatePlanId();
+					logger.info("Generated new plan ID as fallback: {}", planId);
+				}
+			}
+			else {
+				// Generate a new plan ID if no uploaded files
+				planId = planIdDispatcher.generatePlanId();
+				logger.info("Generated new plan ID: {}", planId);
+			}
+
+			// Extract planIds from template for hierarchy support
+			String finalCurrentPlanId = planId;
+			String finalRootPlanId = planId;
+
+			try {
+				com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+				com.fasterxml.jackson.databind.JsonNode planNode = mapper.readTree(planJson);
+
+				String templateCurrentPlanId = planNode.has("currentPlanId") ? planNode.get("currentPlanId").asText()
+						: null;
+				String templateRootPlanId = planNode.has("rootPlanId") ? planNode.get("rootPlanId").asText() : null;
+
+				// Create hierarchy for uploaded files if template defines different IDs
+				if (uploadedFiles != null && !uploadedFiles.isEmpty() && templateCurrentPlanId != null
+						&& templateRootPlanId != null && !templateCurrentPlanId.equals(templateRootPlanId)) {
+					finalCurrentPlanId = planId + "-" + templateCurrentPlanId;
+					finalRootPlanId = planId + "-" + templateRootPlanId;
+					logger.info("Created hierarchy for uploaded files: root={}, current={}", finalRootPlanId,
+							finalCurrentPlanId);
+				}
+				else if (uploadedFiles == null || uploadedFiles.isEmpty()) {
+					// No uploaded files, use template settings directly
+					finalCurrentPlanId = templateCurrentPlanId != null ? templateCurrentPlanId : planId;
+					finalRootPlanId = templateRootPlanId != null ? templateRootPlanId : planId;
+				}
+			}
+			catch (Exception e) {
+				logger.warn("Failed to parse template planIds, using default: {}", e.getMessage());
+			}
+
+			// Get planning flow, using the determined plan ID
+			PlanningCoordinator planningCoordinator = planningFactory.createPlanningCoordinator(finalCurrentPlanId);
+			ExecutionContext context = new ExecutionContext();
+			context.setCurrentPlanId(finalCurrentPlanId);
+			context.setRootPlanId(finalRootPlanId);
+			context.setNeedSummary(true);
+
+			// Handle uploaded files if present
+			if (uploadedFiles != null && !uploadedFiles.isEmpty()) {
+				Map<String, String> fileContext = new HashMap<>();
+				fileContext.put("hasUploadedFiles", "true");
+				fileContext.put("fileCount", String.valueOf(uploadedFiles.size()));
+
+				// Store file names and paths as comma-separated strings
+				StringBuilder fileNames = new StringBuilder();
+				StringBuilder filePaths = new StringBuilder();
+
+				for (int i = 0; i < uploadedFiles.size(); i++) {
+					Map<String, Object> file = uploadedFiles.get(i);
+					if (i > 0) {
+						fileNames.append(",");
+						filePaths.append(",");
+					}
+					fileNames.append(String.valueOf(file.get("name")));
+					filePaths.append(String.valueOf(file.get("relativePath")));
+				}
+
+				fileContext.put("uploadedFileNames", fileNames.toString());
+				fileContext.put("uploadedFilePaths", filePaths.toString());
+				fileContext.put("uploadPlanId", planId);
+
+				// Add file context to execution context
+				context.getToolsContext().putAll(fileContext);
+				logger.info("Added uploaded files context to execution: {} files", uploadedFiles.size());
+			}
+
+			try {
+				// Use Jackson to deserialize JSON to PlanInterface object
+				PlanInterface plan = objectMapper.readValue(planJson, PlanInterface.class);
+
+				// Set plan ID, overriding ID in JSON
+				plan.setCurrentPlanId(planId);
+				plan.setRootPlanId(planId);
+				// Set URL parameters to plan
+				if (rawParam != null && !rawParam.isEmpty()) {
+					logger.info("Set execution parameters to plan: {}", rawParam);
+					plan.setExecutionParams(rawParam);
+				}
+
+				// Set plan to context
+				context.setPlan(plan);
+
+				// Get user request from recorder
+				context.setUserRequest(template.getTitle());
+			}
+			catch (Exception e) {
+				logger.error("Failed to parse plan JSON or get user request", e);
+				context.setUserRequest("Execute plan: " + planId + "\nFrom template: " + planTemplateId);
+
+				// If parsing fails, record the error but continue with the flow
+				logger.warn("Using original JSON to continue execution", e);
+			}
+
+			// Execute the plan asynchronously
+			CompletableFuture.runAsync(() -> {
+				// Execute the plan and summary steps, skipping the create plan step
+				planningCoordinator.executeExistingPlan(context);
+				logger.info("Plan execution successful: {}", planId);
+			});
+
+			// Return task ID and initial status
+			Map<String, Object> response = new HashMap<>();
+			response.put("planId", planId);
+			response.put("status", "processing");
+			response.put("message", "Plan execution request submitted, processing");
 
 			return ResponseEntity.ok(response);
 		}

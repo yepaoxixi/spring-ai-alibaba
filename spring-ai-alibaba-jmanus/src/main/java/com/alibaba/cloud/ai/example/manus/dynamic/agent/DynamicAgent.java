@@ -53,12 +53,7 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 import reactor.core.publisher.Flux;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -84,7 +79,7 @@ public class DynamicAgent extends ReActAgent {
 
 	private Prompt userPrompt;
 
-	// 存储当前创建的ThinkActRecord ID，用于后续的action记录
+	// Store current created ThinkActRecord ID for subsequent action recording
 	private Long currentThinkActRecordId;
 
 	private final ToolCallingManager toolCallingManager;
@@ -138,7 +133,7 @@ public class DynamicAgent extends ReActAgent {
 			log.error(String.format("🚨 Oops! The %s's thinking process hit a snag: %s", getName(), e.getMessage()), e);
 			log.info("Exception occurred", e);
 
-			// 记录思考失败
+			// Record thinking failure
 			PlanExecutionRecorder.PlanExecutionParams params = new PlanExecutionRecorder.PlanExecutionParams();
 			params.setCurrentPlanId(getCurrentPlanId());
 			params.setRootPlanId(getRootPlanId());
@@ -199,7 +194,7 @@ public class DynamicAgent extends ReActAgent {
 				.stream()
 				.chatResponse();
 			streamResult = streamingResponseHandler.processStreamingResponse(responseFlux,
-					"Agent " + getName() + " thinking");
+					"Agent " + getName() + " thinking", getCurrentPlanId());
 
 			response = streamResult.getLastResponse();
 			String modelName = response.getMetadata().getModel();
@@ -215,7 +210,7 @@ public class DynamicAgent extends ReActAgent {
 				log.info(String.format("🧰 Tools being prepared: %s",
 						toolCalls.stream().map(ToolCall::name).collect(Collectors.toList())));
 
-				// 记录成功的思考和动作准备
+				// Record successful thinking and action preparation
 				String toolName = toolCalls.get(0).name();
 				String toolParameters = toolCalls.get(0).arguments();
 				PlanExecutionRecorder.PlanExecutionParams params = new PlanExecutionRecorder.PlanExecutionParams();
@@ -238,7 +233,7 @@ public class DynamicAgent extends ReActAgent {
 			log.warn("Attempt {}: No tools selected. Retrying...", attempt);
 		}
 
-		// 记录思考失败（没有选择工具）
+		// Record thinking failure (no tools selected)
 		PlanExecutionRecorder.PlanExecutionParams params = new PlanExecutionRecorder.PlanExecutionParams();
 		params.setCurrentPlanId(getCurrentPlanId());
 		params.setRootPlanId(getRootPlanId());
@@ -279,21 +274,21 @@ public class DynamicAgent extends ReActAgent {
 		try {
 			List<ToolCall> toolCalls = streamResult.getEffectiveToolCalls();
 
-			// 创建 ActToolInfo 列表
+			// Create ActToolInfo list
 			actToolInfoList = createActToolInfoList(toolCalls);
 
-			// 执行工具调用
+			// Execute tool calls
 			toolExecutionResult = toolCallingManager.executeToolCalls(userPrompt, response);
 			processMemory(toolExecutionResult);
 
-			// 获取工具响应消息
+			// Get tool response messages
 			ToolResponseMessage toolResponseMessage = (ToolResponseMessage) toolExecutionResult.conversationHistory()
 				.get(toolExecutionResult.conversationHistory().size() - 1);
 
-			// 设置每个工具的执行结果
+			// Set execution result for each tool
 			setActToolInfoResults(actToolInfoList, toolResponseMessage.getResponses());
 
-			// 获取最后一个工具的执行结果
+			// Get execution result of the last tool
 			if (!toolResponseMessage.getResponses().isEmpty()) {
 				lastToolCallResult = toolResponseMessage.getResponses()
 					.get(toolResponseMessage.getResponses().size() - 1)
@@ -302,7 +297,7 @@ public class DynamicAgent extends ReActAgent {
 
 			log.info(String.format("🔧 Tool %s's executing result: %s", getName(), lastToolCallResult));
 
-			// 处理特殊工具类型逻辑 - 只检查第一个工具
+			// Handle special tool type logic - only check the first tool
 			ToolCall firstToolCall = toolCalls.get(0);
 			String firstToolName = firstToolCall.name();
 			ToolCallBiFunctionDef<?> toolInstance = getToolCallBackContext(firstToolName).getFunctionInstance();
@@ -322,7 +317,7 @@ public class DynamicAgent extends ReActAgent {
 					log.info("TerminableTool can terminate for planId: {}", getCurrentPlanId());
 					userInputService.removeFormInputTool(getCurrentPlanId());
 
-					// 记录成功完成的动作结果
+					// Record successfully completed action result
 					recordActionResult(actToolInfoList, lastToolCallResult, ExecutionStatus.FINISHED, null, false);
 
 					return new AgentExecResult(lastToolCallResult, AgentState.COMPLETED);
@@ -332,7 +327,7 @@ public class DynamicAgent extends ReActAgent {
 				}
 			}
 
-			// 记录成功的动作结果
+			// Record successful action result
 			recordActionResult(actToolInfoList, lastToolCallResult, ExecutionStatus.RUNNING, null, false);
 
 			return new AgentExecResult(lastToolCallResult, AgentState.IN_PROGRESS);
@@ -341,7 +336,7 @@ public class DynamicAgent extends ReActAgent {
 			log.error(e.getMessage());
 			log.info("Exception occurred", e);
 
-			// 记录失败的动作结果
+			// Record failed action result
 			List<ToolCall> toolCalls = streamResult.getEffectiveToolCalls();
 			if (toolCalls != null && !toolCalls.isEmpty()) {
 				actToolInfoList = createActToolInfoList(toolCalls);
@@ -350,7 +345,8 @@ public class DynamicAgent extends ReActAgent {
 			errorMessage.append(e.getMessage());
 
 			String firstToolcall = actToolInfoList != null && !actToolInfoList.isEmpty()
-					? actToolInfoList.get(0).getParameters().toString() : "unknown";
+					&& actToolInfoList.get(0).getParameters() != null
+							? actToolInfoList.get(0).getParameters().toString() : "unknown";
 			errorMessage.append("  . llm return param :  ").append(firstToolcall);
 
 			recordActionResult(actToolInfoList, errorMessage.toString(), ExecutionStatus.RUNNING,
@@ -371,7 +367,7 @@ public class DynamicAgent extends ReActAgent {
 			String curToolResp = toolResponse.responseData();
 			log.info("🔧 Tool {}'s executing result: {}", getName(), curToolResp);
 
-			// 找到对应的 ActToolInfo 并设置结果
+			// Find corresponding ActToolInfo and set result
 			for (ThinkActRecord.ActToolInfo actToolInfo : actToolInfoList) {
 				if (actToolInfo.getId().equals(toolResponse.id())) {
 					actToolInfo.setResult(curToolResp);
@@ -418,7 +414,7 @@ public class DynamicAgent extends ReActAgent {
 				processUserInputToMemory(userMessage);
 				userInputService.removeFormInputTool(getCurrentPlanId());
 
-				// 记录输入超时的动作结果
+				// Record input timeout action result
 				recordActionResult(actToolInfoList, "Input timeout occurred", ExecutionStatus.RUNNING,
 						"Input timeout occurred for FormInputTool", false);
 
@@ -599,11 +595,15 @@ public class DynamicAgent extends ReActAgent {
 	}
 
 	protected String collectEnvData(String toolCallName) {
+		log.info("🔍 collectEnvData called for tool: {}", toolCallName);
 		ToolCallBackContext context = toolCallbackProvider.getToolCallBackContext().get(toolCallName);
 		if (context != null) {
-			return context.getFunctionInstance().getCurrentToolStateString();
+			String envData = context.getFunctionInstance().getCurrentToolStateString();
+			log.info("📊 Tool '{}' env data: {}", toolCallName, envData);
+			return envData;
 		}
 		// If corresponding tool callback context is not found, return empty string
+		log.warn("⚠️ No context found for tool: {}", toolCallName);
 		return "";
 	}
 

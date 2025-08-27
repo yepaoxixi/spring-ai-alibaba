@@ -17,13 +17,19 @@ Spring AI Alibaba Redis Memory 模块是Spring AI Alibaba项目的核心组件�
 
 ```xml
 <dependency>
-    <groupId>com.alibaba.spring.ai</groupId>
-    <artifactId>spring-ai-alibaba-redis-memory</artifactId>
+    <groupId>com.alibaba.cloud.ai</groupId>
+    <artifactId>spring-ai-alibaba-autoconfigure-memory</artifactId>
+    <version>${latest.version}</version>
+</dependency>
+
+<dependency>
+    <groupId>com.alibaba.cloud.ai</groupId>
+    <artifactId>spring-ai-alibaba-starter-memory-redis</artifactId>
     <version>${latest.version}</version>
 </dependency>
 ```
 
-### 基本配置
+### 基本配置-单机
 
 在`application.properties`或`application.yml`中添加Redis配置：
 
@@ -32,24 +38,259 @@ spring:
   ai:
     memory:
       redis:
+        # Supports standalone and cluster
+        mode: standalone
+        # Supports jedis, lettuce, and redisson
+        client-type: lettuce
         host: localhost
         port: 6379
+```
+
+### 基本配置-集群
+
+在`application.properties`或`application.yml`中添加Redis配置：
+
+```yaml
+spring:
+  ai:
+    memory:
+      redis:
+        # Supports standalone and cluster
+        mode: cluster
+        # Supports jedis, lettuce, and redisson
+        client-type: lettuce
+        cluster:
+          nodes: localhost:6379,localhost:6380,localhost:6381
+```
+
+### 切换redis client客户端
+
+在`application.properties`或`application.yml`中添加Redis配置：
+
+```yaml
+spring:
+  ai:
+    memory:
+      redis:
+        # Supports standalone and cluster
+        mode: cluster
+        # Supports jedis, lettuce, and redisson
+        client-type: jedis
+        cluster:
+          nodes: localhost:6379,localhost:6380,localhost:6381
+```
+
+### 完全配置-单机
+```yaml
+spring:
+  ai:
+    memory:
+      redis:
+        # Supports standalone and cluster
+        mode: standalone
+        # Supports jedis, lettuce, and redisson
+        client-type: jedis
+        host: localhost
+        port: 6379
+        username: yourUsername
+        password: yourPassword
+        timeout: 2000
+```
+
+### 完全配置-集群
+```yaml
+spring:
+  ai:
+    memory:
+      redis:
+        # Supports standalone and cluster
+        mode: cluster
+        username: yourUsername
+        password: yourPassword
+        timeout: 2000
+        # Supports jedis, lettuce, and redisson
+        client-type: jedis
+        cluster:
+          nodes: localhost:6379,localhost:6380,localhost:6381
+```
+
+### (可选)使用JedisPoolConfig覆盖默认的JedisRedisChatMemoryRepository
+
+```java
+@Configuration
+public class CustomJedisRedisChatMemoryAutoConfiguration extends RedisChatMemoryConnectionAutoConfiguration<JedisRedisChatMemoryRepository> {
+
+    private static final Logger logger = LoggerFactory.getLogger(CustomJedisRedisChatMemoryAutoConfiguration.class);
+
+    public CustomJedisRedisChatMemoryAutoConfiguration(RedisChatMemoryProperties properties, RedisChatMemoryConnectionDetails connectionDetails) {
+        super(properties, connectionDetails);
+    }
+
+    @Bean
+    public JedisRedisChatMemoryRepository jedisRedisChatMemoryRepository() {
+        return super.buildRedisChatMemoryRepository();
+    }
+
+    @Override
+    protected JedisRedisChatMemoryRepository createStandaloneChatMemoryRepository(RedisChatMemoryStandaloneConfiguration standaloneConfiguration) {
+        logger.info("Configuring Redis Standalone chat memory repository using Jedis");
+        return JedisRedisChatMemoryRepository.builder()
+                .host(standaloneConfiguration.hostName())
+                .port(standaloneConfiguration.port())
+                .username(standaloneConfiguration.username())
+                .password(standaloneConfiguration.password())
+                .timeout(standaloneConfiguration.timeout())
+                // using your JedisPoolConfig here
+                .poolConfig(new JedisPoolConfig())
+                .build();
+    }
+
+    @Override
+    protected JedisRedisChatMemoryRepository createClusterChatMemoryRepository(RedisChatMemoryClusterConfiguration clusterConfiguration) {
+        logger.info("Configuring Redis Cluster chat memory repository using Jedis");
+        return JedisRedisChatMemoryRepository.builder()
+                .nodes(clusterConfiguration.nodeAddresses())
+                .username(clusterConfiguration.username())
+                .password(clusterConfiguration.password())
+                .timeout(clusterConfiguration.timeout())
+                // using your JedisPoolConfig here
+                .poolConfig(new JedisPoolConfig())
+                .build();
+    }
+}
+```
+
+### (可选)使用GenericObjectPoolConfig覆盖默认的LettuceRedisChatMemoryRepository
+
+```java
+import com.alibaba.cloud.ai.autoconfigure.memory.redis.*;
+import com.alibaba.cloud.ai.memory.redis.LettuceRedisChatMemoryRepository;
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class CustomLettuceRedisChatMemoryAutoConfiguration extends RedisChatMemoryConnectionAutoConfiguration<LettuceRedisChatMemoryRepository> {
+
+    private static final Logger logger = LoggerFactory.getLogger(CustomLettuceRedisChatMemoryAutoConfiguration.class);
+
+    public CustomLettuceRedisChatMemoryAutoConfiguration(RedisChatMemoryProperties properties, RedisChatMemoryConnectionDetails connectionDetails) {
+        super(properties, connectionDetails);
+    }
+
+    @Override
+    @Bean
+    protected LettuceRedisChatMemoryRepository buildRedisChatMemoryRepository() {
+        return super.buildRedisChatMemoryRepository();
+    }
+
+    @Override
+    protected LettuceRedisChatMemoryRepository createStandaloneChatMemoryRepository(RedisChatMemoryStandaloneConfiguration standaloneConfiguration) {
+        logger.info("Configuring Redis Standalone chat memory repository using Lettuce");
+        return LettuceRedisChatMemoryRepository.builder()
+                .host(standaloneConfiguration.hostName())
+                .port(standaloneConfiguration.port())
+                .username(standaloneConfiguration.username())
+                .password(standaloneConfiguration.password())
+                .timeout(standaloneConfiguration.timeout())
+                // using your GenericObjectPoolConfig here
+                .poolConfig(new GenericObjectPoolConfig<>())
+                .build();
+    }
+
+    @Override
+    protected LettuceRedisChatMemoryRepository createClusterChatMemoryRepository(RedisChatMemoryClusterConfiguration clusterConfiguration) {
+        logger.info("Configuring Redis Cluster chat memory repository using Lettuce");
+        return LettuceRedisChatMemoryRepository.builder()
+                .nodes(clusterConfiguration.nodeAddresses())
+                .username(clusterConfiguration.username())
+                .password(clusterConfiguration.password())
+                .timeout(clusterConfiguration.timeout())
+                // using your GenericObjectPoolConfig here
+                .poolConfig(new GenericObjectPoolConfig<>())
+                .build();
+    }
+}
+```
+
+### (可选)使用Config覆盖默认的RedissonRedisChatMemoryRepository
+
+```java
+import com.alibaba.cloud.ai.autoconfigure.memory.redis.*;
+import com.alibaba.cloud.ai.memory.redis.RedissonRedisChatMemoryRepository;
+import org.redisson.config.Config;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class CustomRedissonRedisChatMemoryAutoConfiguration extends RedisChatMemoryConnectionAutoConfiguration<RedissonRedisChatMemoryRepository> {
+
+    private static final Logger logger = LoggerFactory.getLogger(CustomRedissonRedisChatMemoryAutoConfiguration.class);
+
+    public CustomRedissonRedisChatMemoryAutoConfiguration(RedisChatMemoryProperties properties, RedisChatMemoryConnectionDetails connectionDetails) {
+        super(properties, connectionDetails);
+    }
+
+    @Override
+    @Bean
+    protected RedissonRedisChatMemoryRepository buildRedisChatMemoryRepository() {
+        return super.buildRedisChatMemoryRepository();
+    }
+
+    @Override
+    protected RedissonRedisChatMemoryRepository createStandaloneRepository(RedisChatMemoryStandaloneConfiguration configuration) {
+        logger.info("Configuring Redis Standalone chat memory repository using Redisson");
+        return RedissonRedisChatMemoryRepository.builder()
+                .host(configuration.hostName())
+                .port(configuration.port())
+                .username(configuration.username())
+                .password(configuration.password())
+                .timeout(configuration.timeout())
+                // using your Config here
+                .redissonConfig(new Config())
+                .build();
+    }
+
+    @Override
+    protected RedissonRedisChatMemoryRepository createClusterRepository(RedisChatMemoryClusterConfiguration configuration) {
+        logger.info("Configuring Redis Cluster chat memory repository using Redisson");
+        return RedissonRedisChatMemoryRepository.builder()
+                .nodes(configuration.nodeAddresses())
+                .username(configuration.username())
+                .password(configuration.password())
+                .timeout(configuration.timeout())
+                // using your Config here
+                .redissonConfig(new Config())
+                .build();
+    }
+}
 ```
 
 ### 示例代码
 
 ```java
+import com.alibaba.cloud.ai.memory.redis.BaseRedisChatMemoryRepository;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
-import com.alibaba.cloud.ai.memory.redis.RedisChatMemoryRepository;
-import javax.servlet.http.HttpServletResponse;
 
 @RestController
 public class ChatController {
 
     @Autowired
-    private RedisChatMemoryRepository redisChatMemoryRepository; // 使用 Redis 作为记忆存储
+    private BaseRedisChatMemoryRepository baseRedisChatMemoryRepository;
+
+    @Autowired
+    private ChatClient chatClient;
 
     /**
      * 流式聊天接口（基于 Redis 存储对话历史）
@@ -70,17 +311,14 @@ public class ChatController {
 
         // 构建带消息窗口的记忆组件，最多保留最近 10 条消息
         ChatMemory chatMemory = MessageWindowChatMemory.builder()
-                .chatMemoryRepository(redisChatMemoryRepository)
+                .chatMemoryRepository(baseRedisChatMemoryRepository)
                 .maxMessages(10)
                 .build();
 
         // 发起 AI 模型调用，并启用记忆功能
         return chatClient.prompt(prompt)
-                .advisors(new MessageChatMemoryAdvisor(chatMemory)) 
-                .advisors(a -> a
-                        .param(CHAT_MEMORY_CONVERSATION_ID_KEY, chatId) 
-                        .param(CHAT_MEMORY_RETRIEVE_SIZE_KEY, 100)
-                )
+                .advisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
+                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, chatId))
                 .stream()     // 使用流式响应
                 .content();   // 获取内容流
     }

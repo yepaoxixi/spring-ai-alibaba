@@ -19,7 +19,7 @@ import java.util.Map;
 
 /**
  * @author lizhenning
- * @date 2025/7/8
+ * @since 2025/7/8
  */
 public class ModelConfig {
 
@@ -36,6 +36,14 @@ public class ModelConfig {
 	private String modelDescription;
 
 	private String type;
+
+	private Boolean isDefault;
+
+	private Double temperature;
+
+	private Double topP;
+
+	private String completionsPath;
 
 	public Long getId() {
 		return id;
@@ -91,6 +99,38 @@ public class ModelConfig {
 
 	public void setHeaders(Map<String, String> headers) {
 		this.headers = headers;
+	}
+
+	public Boolean getIsDefault() {
+		return isDefault;
+	}
+
+	public void setIsDefault(Boolean isDefault) {
+		this.isDefault = isDefault;
+	}
+
+	public Double getTemperature() {
+		return temperature;
+	}
+
+	public void setTemperature(Double temperature) {
+		this.temperature = temperature;
+	}
+
+	public Double getTopP() {
+		return topP;
+	}
+
+	public void setTopP(Double topP) {
+		this.topP = topP;
+	}
+
+	public String getCompletionsPath() {
+		return completionsPath;
+	}
+
+	public void setCompletionsPath(String completionsPath) {
+		this.completionsPath = completionsPath;
 	}
 
 }

@@ -33,6 +33,7 @@ import com.alibaba.cloud.ai.example.manus.llm.ILlmService;
 import com.alibaba.cloud.ai.example.manus.llm.StreamingResponseHandler;
 import com.alibaba.cloud.ai.example.manus.planning.service.UserInputService;
 import com.alibaba.cloud.ai.example.manus.recorder.PlanExecutionRecorder;
+import com.alibaba.cloud.ai.example.manus.planning.model.vo.ExecutionContext;
 
 @Service
 public class DynamicAgentLoader implements IDynamicAgentLoader {
@@ -82,10 +83,15 @@ public class DynamicAgentLoader implements IDynamicAgentLoader {
 	}
 
 	public List<DynamicAgentEntity> getAllAgents() {
-		return repository.findAll()
+		return repository.findAllByNamespace(namespace)
 			.stream()
 			.filter(entity -> Objects.equals(entity.getNamespace(), namespace))
 			.toList();
+	}
+
+	@Override
+	public List<DynamicAgentEntity> getAgents(ExecutionContext context) {
+		return IDynamicAgentLoader.super.getAgents(context);
 	}
 
 }
